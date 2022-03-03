@@ -60,13 +60,15 @@ jobs:
         run: |
           ./manage.py migrate --noinput
           ./manage.py load_initial_data
+      - name: Set variable for reports directory
+        run: |
+          echo "reports_dir=benchmark/reports/$(date +%s)_${{ github.event.inputs.wagtail_ref }}_${{ github.event.inputs.bakerydemo_ref }}" >> $GITHUB_ENV
       - name: Benchmark
         run: |
-          REPORTS_DIR=benchmark/reports/$(date +%s)_${{ github.event.inputs.wagtail_ref }}_${{ github.event.inputs.bakerydemo_ref }} &
           PORT=8009 gunicorn bakerydemo.wsgi:application --chdir bakerydemo &
-          ./k6 run benchmark/benchmark.js -e GIT_SHA="$GITHUB_SHA" -e GIT_REF_NAME="$GITHUB_REF_NAME" --out json=metrics.json &
-          mkdir -p $REPORTS_DIR &
-          mv -t $REPORTS_DIR summary.json summary.html metrics.json
+          ./k6 run benchmark/benchmark.js -e GIT_SHA="$GITHUB_SHA" -e GIT_REF_NAME="$GITHUB_REF_NAME" --out json=metrics.json &&
+          mkdir -p "${{ env.reports_dir }}" &&
+          mv -t "${{ env.reports_dir }}" summary.json summary.html metrics.json
         env:
           DATABASE_ENGINE: django.db.backends.postgresql
           DATABASE_HOST: localhost
