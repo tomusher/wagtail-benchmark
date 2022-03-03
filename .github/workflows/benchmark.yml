@@ -64,7 +64,7 @@ jobs:
         run: |
           REPORTS_DIR=benchmark/reports/$(date +%s)_${{ github.event.inputs.wagtail_ref }}_${{ github.event.inputs.bakerydemo_ref }} &
           PORT=8009 gunicorn bakerydemo.wsgi:application --chdir bakerydemo &
-          ./k6 run benchmark/benchmark.js -e GIT_SHA="$GITHUB_SHA" -e GIT_REF_NAME="$GITHUB_REF_NAME" --out=metrics.json &
+          ./k6 run benchmark/benchmark.js -e GIT_SHA="$GITHUB_SHA" -e GIT_REF_NAME="$GITHUB_REF_NAME" --out json=metrics.json &
           mkdir -p $REPORTS_DIR &
           mv -t $REPORTS_DIR summary.json summary.html metrics.json
         env:
@@ -79,3 +79,4 @@ jobs:
           author_name: "Benchmark Action"
           name: benchmark-summary
           cwd: "./benchmark"
+          push: true
