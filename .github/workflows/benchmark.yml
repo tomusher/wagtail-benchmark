@@ -1,0 +1,81 @@
+name: Wagtail Benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      wagtail_ref:
+        description: "Wagtail commit reference to test"
+        required: true
+      bakerydemo_ref:
+        description: "Bakerydemo commit reference to test"
+        required: true
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:10.8
+        ports:
+          - 5432:5432
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          path: benchmark
+      - uses: actions/checkout@v2
+        with:
+          repository: wagtail/wagtail
+          ref: ${{ github.event.inputs.wagtail_ref }}
+          path: wagtail
+      - uses: actions/checkout@v2
+        with:
+          repository: wagtail/bakerydemo
+          ref: ${{ github.event.inputs.bakerydemo_ref }}
+          path: bakerydemo
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.9
+      - name: Install common dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install "psycopg2>=2.6" gunicorn
+      - name: Install bakerydemo dependencies
+        working-directory: ./bakerydemo
+        run: |
+          pip install -r requirements/production.txt
+      - name: Install wagtail dependencies
+        working-directory: ./wagtail
+        run: |
+          pip install -e .[testing]
+      - name: Install k6
+        run: |
+          curl -L -o k6.tar.gz https://github.com/grafana/k6/releases/download/v0.36.0/k6-v0.36.0-linux-amd64.tar.gz
+          tar -xzvf k6.tar.gz --strip-components=1
+          chmod a+x k6
+      - name: Prepare bakerydemo
+        working-directory: ./bakerydemo
+        run: |
+          ./manage.py migrate --noinput
+          ./manage.py load_initial_data
+      - name: Benchmark
+        run: |
+          REPORTS_DIR=benchmark/reports/$(date +%s)_${{ github.event.inputs.wagtail_ref }}_${{ github.event.inputs.bakerydemo_ref }} &
+          PORT=8009 gunicorn bakerydemo.wsgi:application --chdir bakerydemo &
+          ./k6 run benchmark/benchmark.js -e GIT_SHA="$GITHUB_SHA" -e GIT_REF_NAME="$GITHUB_REF_NAME" --out=metrics.json &
+          mkdir -p $REPORTS_DIR &
+          mv -t $REPORTS_DIR summary.json summary.html metrics.json
+        env:
+          DATABASE_ENGINE: django.db.backends.postgresql
+          DATABASE_HOST: localhost
+          DATABASE_USER: postgres
+          DATABASE_PASS: postgres
+      - name: Commit reports
+        uses: EndBug/add-and-commit@v8
+        with:
+          add: "reports"
+          author_name: "Benchmark Action"
+          name: benchmark-summary
+          cwd: "./benchmark"
